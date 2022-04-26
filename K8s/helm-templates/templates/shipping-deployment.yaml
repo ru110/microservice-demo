@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shipping
+  labels:
+    service: shipping
+    app: shipping
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: shipping
+      app: shipping
+      version: v1
+  template:
+    metadata:
+      labels:
+        service: shipping
+        app: shipping
+        version: v1
+      annotations:
+        sidecar.opentelemetry.io/inject: "true"
+        instrumentation.opentelemetry.io/inject-java: "true"
+    spec:
+      #serviceAccountName: internal-app
+      containers:
+      - name: shipping
+        #image: ruqaiya009/test01:shipping-v3
+        #image: ruqaiya009/test01:v1-ship
+        image: ruqaiya009/cart01:v3
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: 8080
+        # it's Java it needs lots of memory
+        resources:
+          limits:
+            cpu: 200m
+            memory: 1000Mi
+          requests:
+            cpu: 100m
+            memory: 500Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 30
+          successThreshold: 1
+      restartPolicy: Always
