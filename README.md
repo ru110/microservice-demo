@@ -17,6 +17,16 @@ This sample microservice application has been built using these technologies:
 - Nginx
 - AngularJS (1.x)
 
+## Run Locally
+
+Run locally on Kubernetes using minikube cluster.
+Follow initial-cluster-setup.ps1 script to start a cluster and setup essential components :
+
+```shell
+$ .\initial-cluster-setup.ps1
+```
+
+
 ## Prometheus
 
 The cart and payment services both have Prometheus metric endpoints. These are accessible on `/metrics`. The cart service provides:
