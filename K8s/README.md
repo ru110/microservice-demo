@@ -25,7 +25,7 @@ $ kubectl -n istio-system get svc istio-ingressgateway
 
 The above will display the IP address of the Istio gateway.
 
-## Prometheus with 
+## Prometheus integration with Wavefront (Tanzu Observability)
 
 The cart and payment services both have Prometheus metric endpoints. These are accessible on /metrics. The cart service provides:
 
