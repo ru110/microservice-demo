@@ -1,0 +1,8 @@
+opentelemetry-instrumentation-flask
+opentelemetry-instrumentation-requests
+Flask
+requests
+pika
+prometheus_client
+opentracing
+instana

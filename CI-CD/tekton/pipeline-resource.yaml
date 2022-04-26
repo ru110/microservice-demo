@@ -1,0 +1,24 @@
+apiVersion: tekton.dev/v1alpha1
+kind: PipelineResource
+metadata:
+  name: go-api-skeleton-git
+spec:
+  type: git
+  params:
+    - name: revision
+      value: main
+    - name: url
+      value: https://github.com/ru110/cart
+      #note: since I will be using the SSH-auth the url is used as ssh url format. 
+      #configure: change if you want to build something else, perhaps from your own local git repository.
+
+---
+apiVersion: tekton.dev/v1alpha1
+kind: PipelineResource
+metadata:
+  name: go-api-skeleton-image
+spec:
+  type: image
+  params:
+    - name: url
+      value: docker.io/ruqaiya009/tekton-img

@@ -1,0 +1,358 @@
+apiVersion: tekton.dev/v1alpha1
+kind: PipelineResource
+metadata:
+  name: git-app-repo
+spec:
+  type: git
+  params:
+  - name: url
+    value:  https://github.com/ru110/robo-shop
+  - name: revision
+    value: main
+
+---
+apiVersion: tekton.dev/v1alpha1
+kind: PipelineResource
+metadata:
+  name: image-registry
+spec:
+  type: image
+  params:
+    - name: url
+      value: docker.io/ruqaiya009/tekton-argo-img
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: basic-git-app-repo-user-pass
+  annotations:
+    # Replace <git_repo_url> with your git repo URL (e.g. https://github.com/d0-labs/tekton-pipeline-example-app)
+    tekton.dev/git-0: https://github.com/ru110/robo-shop
+type: kubernetes.io/basic-auth
+stringData:
+  username: ru110
+  password: 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
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: basic-docker-user-pass
+  annotations:
+    # Replace <docker_registry_url> with your docker registry URL (e.g. https://my-acr.azurecr.io)
+    tekton.dev/docker-0: docker.io/ruqaiya009
+type: kubernetes.io/basic-auth
+stringData:
+  username: ruqaiya009
+  password: ruqu@0091
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pipeline-sa
+secrets:
+  - name: basic-docker-user-pass
+  - name: basic-git-app-repo-user-pass
+  - name: regcred
+  - name: argocd-env-secret1
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: build-task-configmap
+data:
+  DOCKER_TAG: "1.0.0"
+  DOCKER_IMAGE_NAME: tekton-argo-img
+  DOCKER_NAMESPACE: ruqaiya009
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-env-configmap
+data:
+  # Replace ARGOCD_SERVER with your ArgoCD server name (see https://medium.com/dzerolabs/installing-ambassador-argocd-and-tekton-on-kubernetes-540aacc983b9)
+  ARGOCD_SERVER: argocd-server.argocd
+  ARGOCD_APPLICATION_NAME: robot-shop
+  ARGOCD_APPLICATION_REVISION: HEAD
+  ARGOCD_USERNAME: admin
+  ARGOCD_PASSWORD: Ruqu@009
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: build-docker-image
+spec:
+  volumes:
+    - name: kaniko-secret
+      secret:
+        secretName: regcred
+        items:
+        - key: .dockerconfigjson
+          path: config.json
+  resources:
+    inputs:
+      - name: git-app-repo
+        type: git
+    outputs:
+      - name: image-registry
+        type: image
+  params:
+    - name: pathToDockerFile
+      description: Path to Dockerfile
+      default: Dockerfile
+    - name: pathToContext
+      description: The build context used by Kaniko
+      default: /workspace/git-app-repo/dispatch
+
+  # Get our Docker image details from the build-task-configmap configmap
+  stepTemplate:
+    envFrom:
+      - configMapRef:
+          name: build-task-configmap
+  steps:
+    - name: build-and-push
+      image: gcr.io/kaniko-project/executor:debug
+      env:
+        - name: "DOCKER_CONFIG"
+          value: "/kaniko/.docker/"
+      command:
+        - /kaniko/executor
+      args:
+        - --dockerfile=$(params.pathToContext)/$(params.pathToDockerFile)
+        - --destination=$(resources.outputs.image-registry.url)
+        - --context=$(params.pathToContext)
+      volumeMounts:
+        - name: kaniko-secret
+          mountPath: /kaniko/.docker/
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: argocd-task-sync-and-wait
+spec:
+  params:
+    - name: flags
+      default: --insecure
+    - name: argocd-version
+      default: v1.7.6
+  stepTemplate:
+    envFrom:
+      - configMapRef:
+          name: argocd-env-configmap  # used for server address
+      - secretRef:
+          name: argocd-env-secret1  # used for authentication (username/password or auth token)
+  steps:
+    - name: argocd-app-sync
+      image: argoproj/argocd:$(params.argocd-version)
+      script: |
+        argocd login $ARGOCD_SERVER --grpc-web-root-path /argo-cd --username $ARGOCD_USERNAME --password $ARGOCD_PASSWORD
+        argocd app sync $ARGOCD_APPLICATION_NAME $(params.flags) --grpc-web-root-path /argo-cd --server $ARGOCD_SERVER
+        argocd app wait $ARGOCD_APPLICATION_NAME --health $(params.flags) --grpc-web-root-path /argo-cd --server $ARGOCD_SERVER
+
+---
+apiVersion: tekton.dev/v1alpha1
+kind: Pipeline
+metadata:
+  name: tekton-argocd-example-build-deploy-pipeline
+spec:
+  resources:
+    - name: git-app-repo
+      type: git
+    - name: image-registry
+      type: image
+  tasks:
+    - name: build-docker-image
+      taskRef:
+        name: build-docker-image
+      params:
+        - name: pathToDockerFile
+          value: Dockerfile
+        - name: pathToContext
+          value: /workspace/git-app-repo/dispatch
+      resources:
+        inputs:
+          - name: git-app-repo
+            resource: git-app-repo
+        outputs:
+          - name: image-registry
+            resource: image-registry
+    - name: sync-application
+      taskRef:
+        name: argocd-task-sync-and-wait
+      params:
+        - name: flags
+          value: --insecure
+---
+apiVersion: tekton.dev/v1alpha1
+kind: PipelineRun
+metadata:
+  name: tekton-argocd-example-build-deploy-pipeline-run
+spec:
+  serviceAccountName: pipeline-sa
+  pipelineRef:
+    name: tekton-argocd-example-build-deploy-pipeline
+  resources:
+  - name: git-app-repo
+    resourceRef:
+      name: git-app-repo
+  - name: image-registry
+    resourceRef:
+      name: image-registry
+# ---
+# apiVersion: triggers.tekton.dev/v1alpha1
+# kind: TriggerTemplate
+# metadata:
+#   name: tekton-argocd-example-build-tt
+# spec:
+#   params: 
+#   - name: git-app-repo-url
+#   - name: git-app-repo-name
+#   - name: git-app-repo-revision
+#   resourcetemplates:
+#   - apiVersion: tekton.dev/v1alpha1
+#     kind: PipelineResource
+#     metadata:
+#       name: git-app-repo-$(uid)
+#       namespace: tekton-argocd-example
+#       labels:
+#         pipeline: tekton
+#         deploy: argocd
+#     spec:
+#       params:
+#       - name: url
+#         value: $(tt.params.git-app-repo-url)
+#       - name: revision
+#         value: $(tt.params.git-app-repo-revision)
+#       - name: git-app-repo-name
+#         value: $(tt.params.git-app-repo-name)
+#       type: git
+#   - apiVersion: tekton.dev/v1alpha1
+#     kind: PipelineResource
+#     metadata:
+#       name: image-registry-$(uid)
+#       namespace: tekton-argocd-example
+#       labels:
+#         pipeline: tekton
+#         deploy: argocd
+#     spec:
+#       params:
+#       - name: url
+#         # Replace <docker_registry_name> with your docker registry name (e.g. my-acr.azurecr.io)
+#         value: '<docker_registry_name>'
+#       type: image
+#   - apiVersion: tekton.dev/v1alpha1
+#     kind: PipelineRun
+#     metadata:
+#       generateName: tekton-argocd-example-build-deploy-pipeline-run-
+#       namespace: tekton-argocd-example
+#       labels:
+#         pipeline: tekton
+#         deploy: argocd
+#     spec:
+#       serviceAccountName: pipeline-sa
+#       pipelineRef:
+#         name: tekton-argocd-example-build-deploy-pipeline
+#       resources:
+#       - name: git-app-repo
+#         resourceRef:
+#           name: git-app-repo-$(uid)
+#       - name: image-registry
+#         resourceRef:
+#           name: image-registry-$(uid)
+
+# --- 
+
+# apiVersion: triggers.tekton.dev/v1alpha1
+# kind: TriggerBinding
+# metadata:
+#   name: tekton-argocd-example-build-git-tb
+# spec:
+#   params:
+#   - name: git-app-repo-url
+#     # Replace with path to the JSON resource you want, based on the Git provider that you're using (e.g. for AzureDevOps: resource.repository.remoteUrl)
+#     value: "https://github.com/ru110/robo-shop"
+#   - name: git-app-repo-revision
+#     value: main
+
+# ---
+
+# apiVersion: triggers.tekton.dev/v1alpha1
+# kind: EventListener
+# metadata:
+#   name: tekton-argocd-example-build-el
+# spec:
+#   serviceAccountName: tekton-triggers-admin
+#   triggers:
+#     - name: github-listener
+#       interceptors:
+#         - github:
+#             secretRef:
+#               secretName: github-secret
+#               secretKey: secretToken
+#             eventTypes:
+#               - pull_request
+#               - push
+#       bindings:
+#         - ref: tekton-argocd-example-build-git-tb
+#       template:
+#         name: tekton-argocd-example-build-tt
+# ---
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: github-secret
+#   annotations:
+#     tekton.dev/git-0: github.com # Described below
+# type: Opaque
+# stringData:
+#   secretToken: "yossi"
+# ---
+# kind: Role
+# apiVersion: rbac.authorization.k8s.io/v1
+# metadata:
+#   name: tekton-triggers-admin
+# rules:
+# - apiGroups:
+#   - triggers.tekton.dev
+#   resources:
+#   - eventlisteners
+#   - triggerbindings
+#   - triggertemplates
+#   verbs:
+#   - get
+# - apiGroups:
+#   - tekton.dev
+#   resources:
+#   - pipelineruns
+#   - pipelineresources
+#   verbs:
+#   - create
+# - apiGroups:
+#   - ""
+#   resources:
+#   - configmaps
+#   verbs:
+#   - get
+#   - list
+#   - watch
+
+# ---
+# apiVersion: v1
+# kind: ServiceAccount
+# metadata:
+#   name: tekton-triggers-admin
+  
+# ---
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: RoleBinding
+# metadata:
+#   name: tekton-triggers-admin-binding
+# subjects:
+#   - kind: ServiceAccount
+#     name: tekton-triggers-admin
+#     namespace: tekton-argocd-example
+# roleRef:
+#   apiGroup: rbac.authorization.k8s.io
+#   kind: Role
+#   name: tekton-triggers-admin
