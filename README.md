@@ -27,22 +27,3 @@ $ .\initial-cluster-setup.ps1
 ```
 
 
-## Prometheus
-
-The cart and payment services both have Prometheus metric endpoints. These are accessible on `/metrics`. The cart service provides:
-
-* Counter of the number of items added to the cart
-
-The payment services provides:
-
-* Counter of the number of items purchased
-* Histogram of the total number of items in each cart
-* Histogram of the total value of each cart
-
-To test the metrics use:
-
-```shell
-$ curl http://<host>:8080/api/cart/metrics
-$ curl http://<host>:8080/api/payment/metrics
-```
-
